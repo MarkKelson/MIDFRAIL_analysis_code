@@ -1,0 +1,716 @@
+#Secondary analysis
+
+#From stackoverflow
+#Variable view function
+# This c reates a variable view function for RStudio 
+
+Varlist = function(sia) {
+  # Init varlist output
+  varlist = data.frame(row.names = names(sia))
+  varlist[["comment"]] = NA
+  varlist[["type"]] = NA
+  varlist[["values"]] = NA
+  varlist[["NAs"]] = NA
+  # Fill with meta information
+  for (var in names(sia)) {
+    if (!is.null(comment(sia[[var]]))) {
+      varlist[[var, "comment"]] = comment(sia[[var]])
+    }
+    varlist[[var, "NAs"]] = sum(is.na(sia[[var]]))
+    if (is.factor(sia[[var]])) {
+      varlist[[var, "type"]] = "factor"
+      varlist[[var, "values"]] = paste(levels(sia[[var]]), collapse=", ")
+    } else if (is.character(sia[[var]])) {
+      varlist[[var, "type"]] = "character"
+    } else if (is.logical(sia[[var]])) {
+      varlist[[var, "type"]] = "logical"
+      n = sum(!is.na(sia[[var]]))
+      if (n > 0) {
+        varlist[[var, "values"]] = paste(round(sum(sia[[var]], na.rm=T) / n * 100), "% TRUE", sep="")
+      }
+    } else if (is.numeric(sia[[var]])) {
+      varlist[[var, "type"]] = typeof(sia[[var]])
+      n = sum(!is.na(sia[[var]]))
+      if (n > 0) {
+        varlist[[var, "values"]] = paste(min(sia[[var]], na.rm=T), "...", max(sia[[var]], na.rm=T))
+      }
+    } else {
+      varlist[[var, "type"]] = typeof(sia[[var]])
+    }
+  }
+  return(varlist)
+}
+
+mffkdatvarlist <- Varlist(mffkdat)
+mffkdatvarlist$Labels <- attr(mffkdat, "variable.labels")
+
+View(mffkdatvarlist)
+
+#Load the foreign library
+library(foreign)
+library(lme4)
+library(lmerTest)
+library(stringr)
+
+#read the baseline data 
+mffkdat <- read.spss(file="S://PCAPH//PCAPH//SEWTU Studies//MID-Frail//Main Trial//DMS MF//5 Data management//5.8 Data//DOWNLOADS//JOINED DATA//MIDFRAIL FULL KEY DATA_1.sav", use.value.labels=T,to.data.frame=T)
+
+#mffkdat <- read.spss(file="//Users//Mark//Documents//Cardiff//SEWTU Studies//MID-Frail//Main Trial//DMS MF//5 Data management//5.8 Data//DOWNLOADS//JOINED DATA//MIDFRAIL FULL KEY DATA.sav", use.value.labels=T,to.data.frame=T)
+#this loads the updated key data file
+mffkdat <- read.spss(file="//Users//Mark//Documents//Cardiff//SEWTU Studies//MID-Frail//Main Trial//DMS MF//5 Data management//5.8 Data//DOWNLOADS//JOINED DATA//Update//MIDFRAIL FULL KEY DATA.sav", use.value.labels=T,to.data.frame=T)
+
+#Read the IADL and Barthel data
+iadlandbartheldat <- read.csv(file="//Users//Mark//Documents//Cardiff//SEWTU Studies//MID-Frail//Main Trial//DMS MF//5 Data management//5.8 Data//DOWNLOADS//JOINED DATA//MIDFRAIL VISIT6 IADL AND BARTHEL DATA-unlocked.csv")
+
+
+#removing trailing spaces from the patientcode and adding into mffkdat
+mffkdat$Patientcode_5020_0_1nospace <- str_trim(mffkdat$Patientcode_5020_0_1)
+iadlandbartheldat$Patientcode_5020_0_1 <- str_trim(iadlandbartheldat$Patientcode_5020_0_1)
+
+mffkdatplus <- merge(mffkdat,iadlandbartheldat,by.x="Patientcode_5020_0_1nospace",by.y="Patientcode_5020_0_1")
+
+#Updating the Baseline Barthel data
+Bbarthel <- read.csv(file="//Users//Mark//Documents//Cardiff//SEWTU studies//MID-Frail//Main Trial//DMS MF//5 Data management//5.8 Data//DOWNLOADS//JOINED DATA//Baseline Barthel.csv")
+mffkdatplusB <- merge(mffkdatplus,Bbarthel,by.x="Patientcode_5020_0_1nospace",by.y="Patientcode_5020_0_1")
+
+
+#Lawton IADL scale
+#TotalScore_5321_2_1 this is baseline (visit 2)
+
+#Table of visit 2 (baseline) scores
+table(mffkdatplus$TotalScore_5321_2_1)
+#Table of visit 6 (1 year follow-up scores)
+table(mffkdatplus$VISIT6IADL)
+
+par(mfrow=c(1,2))
+hist(mffkdatplus$TotalScore_5321_2_1)
+hist(mffkdatplus$VISIT6IADL)
+
+hist(sqrt(mffkdatplus$TotalScore_5321_2_1))
+hist(sqrt(mffkdatplus$VISIT6IADL))
+
+hist(log(mffkdatplus$TotalScore_5321_2_1))
+hist(log(mffkdatplus$VISIT6IADL))
+
+hist(exp(mffkdatplus$TotalScore_5321_2_1))
+hist(exp(mffkdatplus$VISIT6IADL))
+#Nothing particularly improves this
+
+iadlmod1 <- lmer(VISIT6IADL ~ Random_5922_0_1 + TotalScore_5321_2_1 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                        Hypertension_5109_1_1 + 
+                        TIA_Stroke_5377_1_1 + 
+                        Cancer_5381_1_1 + 
+                        HipFracture_5384_1_1 + 
+                        Osteoporosis_5386_1_1 + 
+                        Parkinsonsdisease_5387_1_1 + 
+                        Asthma_COPD_5338_1_1 + 
+                        CHF_5379_1_1 + 
+                        OA_RA_5385_1_1 + (1|SITE), data= mffkdatplus)
+
+summary(iadlmod1)
+
+#This uses the function i created for the primary analysis
+coef.lmer(iadlmod1)
+
+#Exploring residuals (some lines)
+plot(fitted(iadlmod1),resid(iadlmod1))
+lines(smooth.spline(fitted(iadlmod1),resid(iadlmod1)))
+
+
+#Observed versus residuals- this looks like we underestimate low scores and overestimate high scores
+boxplot(split(resid(iadlmod1),iadlmod1@frame$VISIT6IADL))
+
+#Aresid versus fitted (not brilliant but not terrible either)
+boxplot(split(resid(iadlmod1),round(fitted(iadlmod1),0)))
+
+
+#This looks at the residuals within each site. Given some are small i think this looks reasonable.
+library(lattice)
+
+xyplot(resid(iadlmod1) ~ fitted(iadlmod1) | iadlmod1@frame$SITE, main = "Primary model by site",
+       panel=function(x, y){ 
+         panel.xyplot(x, y) 
+         # panel.loess(x, y, span = 0.75) 
+         panel.lmline(x, y, lty = 2)  # Least squares broken line
+         panel.abline(0, 0, lty = 1)  # straight horizontal line at zero
+         
+       } 
+)
+
+
+#Barthel Index
+#XXXXXX this is baseline (visit 2)
+
+#Table of visit 2 (baseline) scores
+table(mffkdatplusB$Score_5318_2_1.y)
+#Table of visit 6 (1 year follow-up scores)
+table(mffkdatplusB$VISIT6BARTHEL)
+
+par(mfrow=c(1,2))
+hist(mffkdatplusB$Score_5318_2_1.y)
+hist(mffkdatplusB$VISIT6BARTHEL)
+
+hist(log(mffkdatplusB$Score_5318_2_1.y))
+hist(log(mffkdatplusB$VISIT6BARTHEL))
+
+hist(exp(mffkdatplusB$Score_5318_2_1.y))
+hist(exp(mffkdatplusB$VISIT6BARTHEL))
+
+hist(sqrt(mffkdatplusB$Score_5318_2_1.y))
+hist(sqrt(mffkdatplusB$VISIT6BARTHEL))
+#Nothing particularly improves this
+
+
+barthelmod1 <- lmer(VISIT6BARTHEL ~ Random_5922_0_1 + Score_5318_2_1.y + AGE + Gender_5022_0_1 + NEWFRIED + 
+                   Hypertension_5109_1_1 + 
+                   TIA_Stroke_5377_1_1 + 
+                   Cancer_5381_1_1 + 
+                   HipFracture_5384_1_1 + 
+                   Osteoporosis_5386_1_1 + 
+                   Parkinsonsdisease_5387_1_1 + 
+                   Asthma_COPD_5338_1_1 + 
+                   CHF_5379_1_1 + 
+                   OA_RA_5385_1_1 + (1|SITE), data= mffkdatplusB)
+
+summary(barthelmod1)
+
+#This uses the function i created for the primary analysis
+coef.lmer(barthelmod1)
+
+#Exploring residuals 
+plot(fitted(barthelmod1),resid(barthelmod1))
+lines(smooth.spline(fitted(barthelmod1),resid(barthelmod1)))
+
+
+#Observed versus residuals
+boxplot(split(resid(barthelmod1),barthelmod1@frame$VISIT6BARTHEL))
+
+#Aresid versus fitted
+boxplot(split(resid(barthelmod1),round(fitted(barthelmod1),0)))
+
+
+#This looks at the residuals within each site. Given some are small i think this looks reasonable.
+library(lattice)
+
+xyplot(resid(barthelmod1) ~ fitted(barthelmod1) | barthelmod1@frame$SITE, main = "Primary model by site",
+       panel=function(x, y){ 
+         panel.xyplot(x, y) 
+         # panel.loess(x, y, span = 0.75) 
+         panel.lmline(x, y, lty = 2)  # Least squares broken line
+         panel.abline(0, 0, lty = 1)  # straight horizontal line at zero
+         
+       } 
+)
+
+
+
+#EQ5D
+#Importing EQ5D file from Neboa
+eq5ddat <- read.csv(file="//Users//Mark//Documents//Cardiff//SEWTU studies//MID-Frail//Main Trial//DMS MF//5 Data management//5.8 Data//DOWNLOADS//JOINED DATA//Utilities EQ Mark.csv")
+mffkdattotal1 <- merge(mffkdatplusB,eq5ddat,by.x="Patientcode_5020_0_1nospace",by.y="Patientcode_5020_0_1")
+
+#Table of visit 2 (baseline) scores
+summary(mffkdattotal1$utility_B)
+#Table of visit 6 (1 year follow-up scores)
+summary(mffkdattotal1$utility_52)
+
+par(mfrow=c(1,2))
+hist(mffkdattotal1$utility_B)
+hist(mffkdattotal1$utility_52)
+
+hist(log(mffkdattotal1$utility_B))
+hist(log(mffkdattotal1$utility_52))
+
+hist(exp(mffkdattotal1$utility_B))
+hist(exp(mffkdattotal1$utility_52))
+
+hist(sqrt(mffkdattotal1$utility_B))
+hist(sqrt(mffkdattotal1$utility_52))
+#Nothing particularly improves this
+
+
+eq5dmod1 <- lmer(utility_52 ~ Random_5922_0_1 + utility_B + AGE + Gender_5022_0_1 + NEWFRIED + 
+                      Hypertension_5109_1_1 + 
+                      TIA_Stroke_5377_1_1 + 
+                      Cancer_5381_1_1 + 
+                      HipFracture_5384_1_1 + 
+                      Osteoporosis_5386_1_1 + 
+                      Parkinsonsdisease_5387_1_1 + 
+                      Asthma_COPD_5338_1_1 + 
+                      CHF_5379_1_1 + 
+                      OA_RA_5385_1_1 + (1|SITE), data= mffkdattotal1)
+
+summary(eq5dmod1)
+
+#This uses the function i created for the primary analysis
+coef.lmer(eq5dmod1)
+
+#Exploring residuals 
+hist(resid(eq5dmod1))
+plot(fitted(eq5dmod1),resid(eq5dmod1))
+lines(smooth.spline(fitted(eq5dmod1),resid(eq5dmod1)))
+
+
+#Observed versus residuals
+boxplot(split(resid(eq5dmod1),eq5dmod1@frame$utility_52))
+
+#Aresid versus fitted- this looks ok
+boxplot(split(resid(eq5dmod1),round(fitted(eq5dmod1),1)))
+
+
+#This looks at the residuals within each site. Given some are small i think this looks reasonable.
+library(lattice)
+
+xyplot(resid(eq5dmod1) ~ fitted(eq5dmod1) | eq5dmod1@frame$SITE, main = "Primary model by site",
+       panel=function(x, y){ 
+         panel.xyplot(x, y) 
+         # panel.loess(x, y, span = 0.75) 
+         panel.lmline(x, y, lty = 2)  # Least squares broken line
+         panel.abline(0, 0, lty = 1)  # straight horizontal line at zero
+         
+       } 
+)
+
+
+#VISIT6MCSS
+#Table of visit 2 (baseline) scores
+summary(mffkdat$VISIT6MCSS)
+hist(mffkdat$TotalScore_5322_2_1)
+
+hist(mffkdat$VISIT6MCSS)
+
+mcssmod1 <- lmer(VISIT6MCSS ~ Random_5922_0_1 + TotalScore_5322_2_1 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                   Hypertension_5109_1_1 + 
+                   TIA_Stroke_5377_1_1 + 
+                   Cancer_5381_1_1 + 
+                   HipFracture_5384_1_1 + 
+                   Osteoporosis_5386_1_1 + 
+                   Parkinsonsdisease_5387_1_1 + 
+                   Asthma_COPD_5338_1_1 + 
+                   CHF_5379_1_1 + 
+                   OA_RA_5385_1_1 + (1|SITE), data= mffkdat)
+
+summary(mcssmod1)
+
+#This uses the function i created for the primary analysis
+coef.lmer(mcssmod1)
+iccfunc(mcssmod1)
+
+#Exploring residuals 
+hist(resid(mcssmod1))
+plot(fitted(mcssmod1),resid(mcssmod1))
+lines(smooth.spline(fitted(mcssmod1),resid(mcssmod1)))
+
+
+#Observed versus residuals- Poorly fitting model
+boxplot(split(resid(mcssmod1),mcssmod1@frame$VISIT6MCSS))
+
+#Aresid versus fitted- this looks ok
+boxplot(split(resid(mcssmod1),round(fitted(mcssmod1),1)))
+
+
+#This looks at the residuals within each site. Given some are small i think this looks reasonable.
+library(lattice)
+
+xyplot(resid(mcssmod1) ~ fitted(mcssmod1) | mcssmod1@frame$SITE, main = "Primary model by site",
+       panel=function(x, y){ 
+         panel.xyplot(x, y) 
+         # panel.loess(x, y, span = 0.75) 
+         panel.lmline(x, y, lty = 2)  # Least squares broken line
+         panel.abline(0, 0, lty = 1)  # straight horizontal line at zero
+         
+       } 
+)
+
+
+
+#######################
+#######################
+#######################
+#######################
+#######################
+#######################
+#######################
+#Binary outcomes
+#Episodes of symptomatic hypoglycaemia
+#Epidoes of permananet institutionalisation
+#Modified care giver strain index
+#Mortality
+#Creating a death variable. I need to do it this way, 
+#because the death excel file had 967 (not 964) rows so
+#if i merge it i will get 3 extra cases
+mffkdattotal1$death <- rep(0,dim(mffkdattotal1)[1])
+for(i in 1:length(deathpatids))
+{
+  mffkdattotal1$death[mffkdattotal1$Patientcode_5020_0_1nospace == deathpatids[i]] <- 1
+}
+  
+#Deaths by treatment arm
+xtabs(~mffkdattotal1$death+mffkdattotal1$Random_5922_0_1)
+
+mffkdat$death1yr <- rep(0,length(mffkdat$TIMEPOINTOFDEATH))
+mffkdat$death1yr[mffkdat$TIMEPOINTOFDEATH=="Died before Baseline"] <- NA
+mffkdat$death1yr[mffkdat$TIMEPOINTOFDEATH=="Died before 1 yr Follow-up"] <- 1
+
+deathmod1 <- glmer(death1yr ~ Random_5922_0_1 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                   Hypertension_5109_1_1 + 
+                   TIA_Stroke_5377_1_1 + 
+                   Cancer_5381_1_1 + 
+                   HipFracture_5384_1_1 + 
+                   Osteoporosis_5386_1_1 + 
+                   Parkinsonsdisease_5387_1_1 + 
+                   Asthma_COPD_5338_1_1 + 
+                   CHF_5379_1_1 + 
+                   OA_RA_5385_1_1 + (1|SITE), family= "binomial", data= mffkdat)
+
+#This gives warnings
+summary(deathmod1)
+
+confint(deathmod1)
+#60 clusters have no deaths
+table(sapply(split(mffkdat$death1yr,mffkdat$SITE),mean,na.rm=T))
+
+########
+#Episodes of symptomatic hypo
+hypomod1 <- glmer(VISIT6HYPO ~ Random_5922_0_1 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                    Hypertension_5109_1_1 + 
+                    TIA_Stroke_5377_1_1 + 
+                    Cancer_5381_1_1 + 
+                    HipFracture_5384_1_1 + 
+                    Osteoporosis_5386_1_1 + 
+                    Parkinsonsdisease_5387_1_1 + 
+                    Asthma_COPD_5338_1_1 + 
+                    CHF_5379_1_1 + 
+                    OA_RA_5385_1_1 + (1|SITE), family= "binomial", data= mffkdat)
+#This gives warnings
+summary(hypomod1)
+confint(hypomod1)
+#Nothing untoward here
+xtabs(~mffkdat$VISIT6HYPO+mffkdat$Hypertension_5109_1_1)
+xtabs(~mffkdat$VISIT6HYPO+mffkdat$TIA_Stroke_5377_1_1)
+xtabs(~mffkdat$VISIT6HYPO+mffkdat$Cancer_5381_1_1)
+xtabs(~mffkdat$VISIT6HYPO+mffkdat$HipFracture_5384_1_1)
+xtabs(~mffkdat$VISIT6HYPO+mffkdat$Osteoporosis_5386_1_1)
+xtabs(~mffkdat$VISIT6HYPO+mffkdat$Parkinsonsdisease_5387_1_1)
+xtabs(~mffkdat$VISIT6HYPO+mffkdat$Asthma_COPD_5338_1_1)
+xtabs(~mffkdat$VISIT6HYPO+mffkdat$CHF_5379_1_1)
+xtabs(~mffkdat$VISIT6HYPO+mffkdat$OA_RA_5385_1_1)
+
+boxplot(split(mffkdat$AGE,mffkdat$VISIT6HYPO))
+
+hypomod2 <- glmer(VISIT6HYPO ~ Random_5922_0_1 + AGE + Gender_5022_0_1 + NEWFRIED +
+                    (1|SITE), family= "binomial", data= mffkdat)
+summary(hypomod2)
+
+hypomod2temp <- glmer(sample(c(0,1),size=dim(mffkdat)[1],replace=T) ~ Random_5922_0_1 + 
+                   (1|SITE), family= "binomial", data= mffkdat)
+
+
+sapply(split(mffkdat$VISIT6HYPO,mffkdat$SITE),table)
+hist(sapply(split((as.numeric(mffkdat$VISIT6HYPO)-1),mffkdat$SITE),mean,na.rm=T))
+
+#This shows that 24 clusters have no events 
+table(sapply(split((as.numeric(mffkdat$VISIT6HYPO)-1),mffkdat$SITE),mean,na.rm=T))
+
+length(unique(mffkdat$SITE))
+24/74
+
+#This is uncorrected for clustering but shows that the problem is with the clusters
+hypomod3 <- glm(VISIT6HYPO ~ Random_5922_0_1 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                  Hypertension_5109_1_1 + 
+                  TIA_Stroke_5377_1_1 + 
+                  Cancer_5381_1_1 + 
+                  HipFracture_5384_1_1 + 
+                  Osteoporosis_5386_1_1 + 
+                  Parkinsonsdisease_5387_1_1 + 
+                  Asthma_COPD_5338_1_1 + 
+                  CHF_5379_1_1 + 
+                  OA_RA_5385_1_1  
+                   , family= "binomial", data= mffkdat)
+
+
+########
+#Hospitalisation
+hospmod1 <- glmer(VISIT6HOSP ~ Random_5922_0_1 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                    Hypertension_5109_1_1 + 
+                    TIA_Stroke_5377_1_1 + 
+                    Cancer_5381_1_1 + 
+                    HipFracture_5384_1_1 + 
+                    Osteoporosis_5386_1_1 + 
+                    Parkinsonsdisease_5387_1_1 + 
+                    Asthma_COPD_5338_1_1 + 
+                    CHF_5379_1_1 + 
+                    OA_RA_5385_1_1 + (1|SITE), family= "binomial", data= mffkdat)
+#This gives warnings
+summary(hospmod1)
+
+exp(fixef(hospmod1))
+exp(confint(hospmod1))
+
+
+#This shows that 25 clusters have no hospitalisations
+table(sapply(split((as.numeric(mffkdat$VISIT6HOSP)-1),mffkdat$SITE),mean,na.rm=T))
+#Checking which are most common comorbidities
+table(mffkdat$Hypertension_5109_1_1)
+table(mffkdat$TIA_Stroke_5377_1_1)
+table(mffkdat$Cancer_5381_1_1)
+table(mffkdat$HipFracture_5384_1_1) 
+table(mffkdat$Osteoporosis_5386_1_1)
+table(mffkdat$Parkinsonsdisease_5387_1_1)
+table(mffkdat$Asthma_COPD_5338_1_1)
+table(mffkdat$CHF_5379_1_1)
+table(mffkdat$OA_RA_5385_1_1)
+
+hospmod2 <- glmer(VISIT6HOSP ~ Random_5922_0_1 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                    Hypertension_5109_1_1 +OA_RA_5385_1_1 + Osteoporosis_5386_1_1
+                  + Asthma_COPD_5338_1_1 + TIA_Stroke_5377_1_1
+                  + Cancer_5381_1_1 +
+                    
+                    (1|SITE), family= "binomial", data= mffkdat)
+
+summary(hospmod2)
+
+
+
+#HbA1c
+hba1cpercmod1 <- lmer(HbA1c1yrperc ~ Random_5922_0_1 + HbA1csperc + AGE + Gender_5022_0_1 + NEWFRIED + 
+Hypertension_5109_1_1 + 
+TIA_Stroke_5377_1_1 + 
+Cancer_5381_1_1 + 
+HipFracture_5384_1_1 + 
+Osteoporosis_5386_1_1 + 
+Parkinsonsdisease_5387_1_1 + 
+Asthma_COPD_5338_1_1 + 
+CHF_5379_1_1 + 
+Alcoholexcess_5382_1_1 +  
+Pressuresores_5383_1_1 + 
+OA_RA_5385_1_1 + (1|SITE), data= mffkdat)
+
+
+coef.lmer(hba1cpercmod1)
+
+par(mfrow=c(1,2))
+boxplot(split(mffkdat$HbA1c1yrperc,mffkdat$Random_5922_0_1),main="1 year follow-up HbA1c %",xlab="%")
+
+boxplot(split(mffkdat$HbA1c1yrmmol,mffkdat$Random_5922_0_1),main="1 year follow-up HbA1c mmol/mol",xlab="mmol/mol")
+
+##############
+#
+hba1cmmolmod1 <- lmer(HbA1c1yrmmol ~ Random_5922_0_1 + HbA1csmmol + AGE + Gender_5022_0_1 + NEWFRIED + 
+Hypertension_5109_1_1 + 
+TIA_Stroke_5377_1_1 + 
+Cancer_5381_1_1 + 
+HipFracture_5384_1_1 + 
+Osteoporosis_5386_1_1 + 
+Parkinsonsdisease_5387_1_1 + 
+Asthma_COPD_5338_1_1 + 
+CHF_5379_1_1 + 
+Alcoholexcess_5382_1_1 +  
+Pressuresores_5383_1_1 + 
+OA_RA_5385_1_1 + (1|SITE), data= mffkdat)
+
+
+coef.lmer(hba1cmmolmod1)
+
+
+#Getting descriptives
+#Descriptive statistics IADL
+#Number in each arm in the fitted model
+table(iadlmod1@frame$Random_5922_0_1)
+
+#Baseline mean IADL (and 95% CI)
+sapply(lapply(split(iadlmod1@frame$TotalScore_5321_2_1,iadlmod1@frame$Random_5922_0_1),mean,na.rm=T),round,2)
+t.testci <- function(x)
+{
+  t.test(x)$conf.int[1:2]
+}
+lapply(lapply(split(iadlmod1@frame$TotalScore_5321_2_1,iadlmod1@frame$Random_5922_0_1),t.testci),round,2)
+
+#1 YEAR FOLLOW-UP mean SPPB (and 95% CI)
+sapply(lapply(split(iadlmod1@frame$VISIT6IADL,iadlmod1@frame$Random_5922_0_1),mean,na.rm=T),round,2)
+
+lapply(lapply(split(iadlmod1@frame$VISIT6IADL,iadlmod1@frame$Random_5922_0_1),t.testci),round,2)
+
+#UNADJUSTED MEAN DIFFERENCE
+round(sapply(split(iadlmod1@frame$VISIT6IADL,iadlmod1@frame$Random_5922_0_1),mean)[2] - sapply(split(iadlmod1@frame$VISIT6IADL,iadlmod1@frame$Random_5922_0_1),mean)[1],2)
+
+
+#Unadjusted 95% CI for mean
+t.test(unlist(split(iadlmod1@frame$VISIT6IADL,iadlmod1@frame$Random_5922_0_1)[2]),
+       unlist(split(iadlmod1@frame$VISIT6IADL,iadlmod1@frame$Random_5922_0_1)[1]))
+
+#Getting ICC
+iccfunc(iadlmod1)
+
+
+
+
+
+#Getting descriptives
+#Descriptive statistics BARTHEL
+#Number in each arm in the fitted model
+table(barthelmod1@frame$Random_5922_0_1)
+
+#Baseline mean IADL (and 95% CI)
+sapply(lapply(split(barthelmod1@frame$Score_5318_2_1.y,barthelmod1@frame$Random_5922_0_1),mean,na.rm=T),round,2)
+
+lapply(lapply(split(barthelmod1@frame$Score_5318_2_1.y,barthelmod1@frame$Random_5922_0_1),t.testci),round,2)
+
+#1 YEAR FOLLOW-UP mean SPPB (and 95% CI)
+sapply(lapply(split(barthelmod1@frame$VISIT6BARTHEL,barthelmod1@frame$Random_5922_0_1),mean,na.rm=T),round,2)
+
+lapply(lapply(split(barthelmod1@frame$VISIT6BARTHEL,barthelmod1@frame$Random_5922_0_1),t.testci),round,2)
+
+#UNADJUSTED MEAN DIFFERENCE
+round(sapply(split(barthelmod1@frame$VISIT6BARTHEL,barthelmod1@frame$Random_5922_0_1),mean)[2] - sapply(split(barthelmod1@frame$VISIT6BARTHEL,barthelmod1@frame$Random_5922_0_1),mean)[1],2)
+
+
+#Unadjusted 95% CI for mean
+t.test(unlist(split(barthelmod1@frame$VISIT6BARTHEL,barthelmod1@frame$Random_5922_0_1)[2]),
+       unlist(split(barthelmod1@frame$VISIT6BARTHEL,barthelmod1@frame$Random_5922_0_1)[1]))
+
+#Getting iCC
+iccfunc(barthelmod1)
+
+
+
+#Getting descriptives
+#Descriptive statistics EQ5D
+#Number in each arm in the fitted model
+table(eq5dmod1@frame$Random_5922_0_1)
+
+#Baseline mean IADL (and 95% CI)
+sapply(lapply(split(eq5dmod1@frame$utility_B,eq5dmod1@frame$Random_5922_0_1),mean,na.rm=T),round,2)
+
+lapply(lapply(split(eq5dmod1@frame$utility_B,eq5dmod1@frame$Random_5922_0_1),t.testci),round,2)
+
+#1 YEAR FOLLOW-UP mean SPPB (and 95% CI)
+sapply(lapply(split(eq5dmod1@frame$utility_52,eq5dmod1@frame$Random_5922_0_1),mean,na.rm=T),round,2)
+
+lapply(lapply(split(eq5dmod1@frame$utility_52,eq5dmod1@frame$Random_5922_0_1),t.testci),round,2)
+
+#UNADJUSTED MEAN DIFFERENCE
+round(sapply(split(eq5dmod1@frame$utility_52,eq5dmod1@frame$Random_5922_0_1),mean)[2] - sapply(split(eq5dmod1@frame$utility_52,eq5dmod1@frame$Random_5922_0_1),mean)[1],2)
+
+
+#Unadjusted 95% CI for mean
+t.test(unlist(split(eq5dmod1@frame$utility_52,eq5dmod1@frame$Random_5922_0_1)[2]),
+       unlist(split(eq5dmod1@frame$utility_52,eq5dmod1@frame$Random_5922_0_1)[1]))
+
+#Getting iCC
+iccfunc(eq5dmod1)
+
+
+#Getting descriptives
+#Descriptive statistics MCSS
+#Number in each arm in the fitted model
+table(mcssmod1@frame$Random_5922_0_1)
+
+#No Baseline mean MCSS (and 95% CI)
+#Finding baseline variable
+sapply(split(mffkdat$TotalScore_5322_2_1,mffkdat$Random_5922_0_1),mean,na.rm=T)
+sqrt(sapply(split(mffkdat$TotalScore_5322_2_1,mffkdat$Random_5922_0_1),var,na.rm=T))
+#This is the baseline variable
+
+sapply(lapply(split(mcssmod1@frame$TotalScore_5322_2_,mcssmod1@frame$Random_5922_0_1),mean,na.rm=T),round,2)
+
+lapply(lapply(split(mcssmod1@frame$TotalScore_5322_2_,mcssmod1@frame$Random_5922_0_1),t.testci),round,2)
+
+#1 YEAR FOLLOW-UP mean MCSS (and 95% CI)
+sapply(lapply(split(mcssmod1@frame$VISIT6MCSS,mcssmod1@frame$Random_5922_0_1),mean,na.rm=T),round,2)
+
+lapply(lapply(split(mcssmod1@frame$VISIT6MCSS,mcssmod1@frame$Random_5922_0_1),t.testci),round,2)
+
+#UNADJUSTED MEAN DIFFERENCE
+round(sapply(split(mcssmod1@frame$VISIT6MCSS,mcssmod1@frame$Random_5922_0_1),mean)[2] - sapply(split(mcssmod1@frame$VISIT6MCSS,mcssmod1@frame$Random_5922_0_1),mean)[1],2)
+
+
+#Unadjusted 95% CI for mean
+t.test(unlist(split(mcssmod1@frame$VISIT6MCSS,mcssmod1@frame$Random_5922_0_1)[2]),
+       unlist(split(mcssmod1@frame$VISIT6MCSS,mcssmod1@frame$Random_5922_0_1)[1]))
+
+#Getting iCC
+iccfunc(mcssmod1)
+
+
+####Death Descriptives
+#Number per group (this is assuming we know about all deaths)
+table(mffkdat$Random_5922_0_1)
+#Deaths per arm
+xtabs(~mffkdat$TIMEPOINTOFDEATH + mffkdattotal1$Random_5922_0_1)
+#As percentages. So there are one in each arm who died before baseline. We remove these from our deaths
+round((13/512)*100,1)
+round((7/450)*100,1)
+
+prop.test(13,512)
+prop.test(7,450)
+#Testing the difference
+
+
+
+prop.test(c(13,7),c(512,450))
+
+#Unadjusted difference
+round((0.02539062-0.01555556 )*100,2)
+
+
+#####hypo Descriptives
+#Number per group (this is assuming we know about all deaths)
+table(mffkdat$Random_5922_0_1[is.na(mffkdat$VISIT6HYPO)==F])
+#Hypos per arm
+xtabs(~mffkdat$VISIT6HYPO + mffkdattotal1$Random_5922_0_1)
+#As percentages. So there are one in each arm who died before baseline. We remove these from our deaths
+round((104/386)*100,1)
+round((54/238)*100,1)
+
+prop.test(104,386)
+prop.test(54,238)
+#Testing the difference
+
+prop.test(c(104,54),c(386,238))
+
+#Unadjusted difference
+round((0.2694301 -0.2268908 )*100,2)
+
+
+#####hosp Descriptives
+#Number per group (this is assuming we know about all deaths)
+table(mffkdat$Random_5922_0_1[is.na(mffkdat$VISIT6HOSP)==F])
+#Hypos per arm
+xtabs(~mffkdat$VISIT6HOSP + mffkdattotal1$Random_5922_0_1)
+#As percentages. So there are one in each arm who died before baseline. We remove these from our deaths
+round((65/386)*100,1)
+round((30/238)*100,1)
+
+prop.test(65,386)
+prop.test(30,238)
+#Testing the difference
+
+prop.test(c(65,30),c(386,238))
+
+#Unadjusted difference
+round((0.1683938 - 0.1260504 )*100,2)
+
+
+####Permanent Institutionalisation Descriptives
+#This relies on the permanent institutionalisation
+#Number per group (this is assuming we know about all deaths)
+table(mffkdatplus$Random_5922_0_1[is.na(mffkdatplus$PermInst)==F])
+#PI per arm
+xtabs(~mffkdatplus$PermInst + mffkdattotal1$Random_5922_0_1)
+
+round((25/(405+25))*100,1)
+round((20/(253+20))*100,1)
+
+prop.test(25,430)
+prop.test(20,273)
+#Testing the difference
+
+prop.test(c(25,20),c(430,273))
+
+#Unadjusted difference
+round((0.05813953  - 0.07326007 )*100,2)
+
+
+
+
