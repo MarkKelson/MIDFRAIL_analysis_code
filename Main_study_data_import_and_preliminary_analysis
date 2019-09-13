@@ -1,0 +1,269 @@
+#MIDFRAIL MAIN STUDY DATA IMPORT AND PRELIMINARY ANALYSIS
+#Load the foreign library
+library(foreign)
+library(lme4)
+library(lmerTest)
+#Library for violin plots
+library(ggplot2)
+
+#read the baseline data 
+mfdat <- read.spss(file="S://PCAPH//PCAPH//SEWTU Studies//MID-Frail//Main Trial//DMS MF//5 Data management//5.8 Data//FOR ANALYSIS//PRIMARY.sav", use.value.labels=T,to.data.frame=T)
+#This is the code for reading the data from Mark K's Mac
+mfdat <- read.spss(file="//Users//Mark//Documents//Cardiff//SEWTU studies//MID-Frail//Main Trial//DMS MF//5 Data management//5.8 Data//FOR ANALYSIS//PRIMARY.sav", use.value.labels=T,to.data.frame=T)
+mffkdatplusr <- read.spss(file="//Users//Mark//Documents//Cardiff//SEWTU studies//MID-Frail//Main Trial//DMS MF//5 Data management//5.8 Data//DOWNLOADS//JOINED DATA//Update//MIDFRAIL FULL KEY DATA with Pre Post Rand.sav", use.value.labels=T,to.data.frame=T)
+
+#Check the dimension of the data
+dim(mfdat)
+
+#check the distribution of the outcome variable
+table(mfdat$VISIT6RESULT)
+
+##Exploring the difference between control and intervention at baseline
+boxplot(split(mfdat$RESULT2,mfdat$Random_5922_0_1),main="SPPB at baseline")
+bsppb <- ggplot(mfdat, aes(Random_5922_0_1, RESULT2))
+bsppb + geom_violin() + geom_jitter(height = 0, width = 0.4) + ylab("SPPB at baseline")+ xlab("Arm") + title("SPPB at baseline")
+
+
+#Exploring the difference between control and intervention at 1 year follow-up
+boxplot(split(mfdat$VISIT6RESULT,mfdat$Random_5922_0_1),main="SPPB at 1 year follow-up")
+
+#Violin plots
+f1ysppb <- ggplot(mfdat, aes(Random_5922_0_1, VISIT6RESULT))
+f1ysppb + geom_violin() + geom_jitter(height = 0, width = 0.4) + ylab("SPPB at baseline")+ xlab("Arm") + title("SPPB at 1 year follow-up")
+
+#Difference between baseline and follow-up
+diffsppb <- ggplot(mfdat, aes(Random_5922_0_1, VISIT6RESULT-RESULT2))
+diffsppb + geom_violin() + geom_jitter(height = 0, width = 0.4) + ylab("SPPB at baseline")+ xlab("Arm") + title("Difference between Follow up - Baseline")
+
+#Descriptive statistics of SPPB
+sapply(split(mfdat$RESULT2,mfdat$Random_5922_0_1),table,useNA="ifany")
+
+
+#Raw comparison of means
+t.test(split(mfdat$VISIT6RESULT,mfdat$Random_5922_0_1)[[1]],split(mfdat$VISIT6RESULT,mfdat$Random_5922_0_1)[[2]],na.rm=T)
+#9.373391 -8.713911
+#Looks to be a difference of about .65 points
+
+#Fitting a generalised linear model
+primmod0 <- lmer(VISIT6RESULT ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                   Hypertension_5109_1_1 + 
+                   TIA_Stroke_5377_1_1 + 
+                   Cancer_5381_1_1 + 
+                   HipFracture_5384_1_1 + 
+                   Osteoporosis_5386_1_1 + 
+                   Parkinsonsdisease_5387_1_1 + 
+                   Asthma_COPD_5338_1_1 + 
+                   CHF_5379_1_1 + 
+                   Alcoholexcess_5382_1_1 +  
+                   Pressuresores_5383_1_1 + 
+                   OA_RA_5385_1_1 + (1|SITE), data= mfdat)
+
+
+#This model removes alcholol excess and prssure sores, as they are not comorbidities and have low frequencies
+primmod1 <- lmer(VISIT6RESULT ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+Hypertension_5109_1_1 + 
+TIA_Stroke_5377_1_1 + 
+Cancer_5381_1_1 + 
+HipFracture_5384_1_1 + 
+Osteoporosis_5386_1_1 + 
+Parkinsonsdisease_5387_1_1 + 
+Asthma_COPD_5338_1_1 + 
+CHF_5379_1_1 + 
+OA_RA_5385_1_1 + (1|SITE), data= mfdat)
+
+summary(primmod1)
+
+#Getting the number of cluster per arm in the primary analysis
+mfdatna <- na.exclude(mfdat)
+sapply(sapply(split(mfdatna$SITE,mfdatna$Random_5922_0_1),unique),length)
+
+
+
+confint(primmod1)
+
+#Calculate icc
+primmod1vc <- VarCorr(primmod1)
+print(primmod1vc,comp=c("Variance"))
+
+
+#Cluster level variance
+primmod1vc$SITE[1]
+#residual variance
+(attributes(primmod1vc)$sc)^2 
+
+
+primmod1icc <- primmod1vc$SITE[1]/((attributes(primmod1vc)$sc)^2+ primmod1vc$SITE[1])
+#An ICC of about 7%
+
+
+
+#A function that produces a nice table output
+coef.lmer <- function(mod){
+vc <- vcov(mod, useScale = FALSE)
+b <- fixef(mod)
+se <- sqrt(diag(vc))
+z <- b / sqrt(diag(vc))
+P <- 2 * (1 - pnorm(abs(z)))
+
+    res <- data.frame(
+        "Beta.CI" = paste(round(fixef(mod),2), " (",round(confint(mod)[c(-1,-2),1],2), ",", round(confint(mod)[c(-1,-2),2], 2),")", sep=""),
+        "P.value" = round(P,3)
+
+
+  )
+    return(res)
+}
+
+
+coef.lmer(primmod1)
+
+
+#Adding in descriptive statistics
+
+
+
+
+
+
+
+#Exploring residuals (not terrible, but not brilliant
+plot(fitted(primmod1),resid(primmod1))
+lines(smooth.spline(fitted(primmod1),resid(primmod1)))
+
+#As expected, residuals can only go in one direction
+boxplot(split(resid(primmod1),primmod1@frame$VISIT6RESULT))
+
+#As expected, residuals can only go in one direction. This is more like it
+boxplot(split(resid(primmod1),round(fitted(primmod1),0)))
+
+
+#This looks at the residuals within each site. Given some are small i think this looks reasonable.
+library(lattice)
+
+xyplot(resid(primmod1) ~ fitted(primmod1) | primmod1@frame$SITE, main = "Primary model by site",
+  panel=function(x, y){ 
+    panel.xyplot(x, y) 
+   # panel.loess(x, y, span = 0.75) 
+	panel.lmline(x, y, lty = 2)  # Least squares broken line
+   panel.abline(0, 0, lty = 1)  # straight horizontal line at zero
+
+  } 
+)
+
+#Getting used patients for Neboa
+
+write.csv(file="Included PIDs in primary analysis for Neboa.csv",mfdat$Patientcode_5020_0_1[is.na(mfdat$RESULT2) == F & is.na(mfdat$VISIT6RESULT)==F],row.names=F)
+
+length(mfdat$Patientcode_5020_0_1[is.na(mfdat$RESULT2) == F & is.na(mfdat$VISIT6RESULT)==F])
+
+#Number of participants per country
+table(mffkdat$Country_5023_0_1)
+
+#Number of sites per country
+sapply(lapply(split(mffkdat$SITE, mffkdat$Country_5121_2_1),unique),length)
+
+#Descriptive statistics
+#Number in each arm in the fitted model
+table(primmod1@frame$Random_5922_0_1)
+
+#Baseline mean SPPB (and 95% CI)
+sapply(lapply(split(primmod1@frame$RESULT2,primmod1@frame$Random_5922_0_1),mean,na.rm=T),round,2)
+t.testci <- function(x)
+{
+  t.test(x)$conf.int[1:2]
+}
+lapply(lapply(split(primmod1@frame$RESULT2,primmod1@frame$Random_5922_0_1),t.testci),round,2)
+
+#1 YEAR FOLLOW-UP mean SPPB (and 95% CI)
+sapply(lapply(split(primmod1@frame$VISIT6RESULT,primmod1@frame$Random_5922_0_1),mean,na.rm=T),round,2)
+
+lapply(lapply(split(primmod1@frame$VISIT6RESULT,primmod1@frame$Random_5922_0_1),t.testci),round,2)
+
+#UNADJUSTED MEAN DIFFERENCE
+round(sapply(split(primmod1@frame$VISIT6RESULT,primmod1@frame$Random_5922_0_1),mean)[2] - sapply(split(primmod1@frame$VISIT6RESULT,primmod1@frame$Random_5922_0_1),mean)[1],2)
+
+
+#Unadjusted 95% CI for mean
+t.test(unlist(split(primmod1@frame$VISIT6RESULT,primmod1@frame$Random_5922_0_1)[2]),
+             unlist(split(primmod1@frame$VISIT6RESULT,primmod1@frame$Random_5922_0_1)[1]))
+
+##########
+#CACE analysis
+install.packages("eefAnalytics")
+
+library(eefAnalytics)
+#getting dataset
+
+mfdatcace <- mfdat
+
+#Creating a binary compliance variable
+
+mfdatcace$NutritionSessionsAttendedperc <- totpatrainingout$NutritionSessionsAttendedperc
+mfdatcacena <- na.exclude(mfdatcace)
+
+cace1 <- caceCRTBoot(formula= VISIT6RESULT ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                       Hypertension_5109_1_1 + 
+                       TIA_Stroke_5377_1_1 + 
+                       Cancer_5381_1_1 + 
+                       HipFracture_5384_1_1 + 
+                       Osteoporosis_5386_1_1 + 
+                       Parkinsonsdisease_5387_1_1 + 
+                       Asthma_COPD_5338_1_1 + 
+                       CHF_5379_1_1 + 
+                       OA_RA_5385_1_1 , random= "SITE", intervention ="Random_5922_0_1", compliance = "NutritionSessionsAttendedperc",nBoot = 50, data= mfdatcacena)
+
+#Overall compliance (oc)
+mfdatcaceoc <- mfdat
+
+mfdatcaceoc$Compliancebin <- I(tottrainkorl >= 23)
+mfdatcaceoc$Compliancebinperc <- mfdatcace$Compliancebin*100
+
+mfdatcaceocna <- na.exclude(mfdatcaceoc)
+
+mfdatcaceocna$constant0 <- 0
+mfdatcaceocna$constant100 <- 100
+mfdatcaceocna$constant50 <- 50
+mfdatcaceocna$VISIT6RESULTstand <- mfdatcaceocna$VISIT6RESULT/100
+mfdatcaceocna$SITEnum <- as.numeric(mfdatcaceocna$SITE)
+
+mfdatcaceocna$trtcompliance <- rep(0,length(mfdatcaceocna$Random_5922_0_1))
+mfdatcaceocna$trtcompliance[mfdatcaceocna$Random_5922_0_1=="Intervention                           "] <- 100
+
+caceoverallcomp <- caceCRTBoot(formula= VISIT6RESULT ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                       Hypertension_5109_1_1 + 
+                       TIA_Stroke_5377_1_1 + 
+                       Cancer_5381_1_1 + 
+                       HipFracture_5384_1_1 + 
+                       Osteoporosis_5386_1_1 + 
+                       Parkinsonsdisease_5387_1_1 + 
+                       Asthma_COPD_5338_1_1 + 
+                       CHF_5379_1_1 + 
+                       OA_RA_5385_1_1 , random= "SITE", intervention ="Random_5922_0_1", compliance = "Compliancebinperc",nBoot = 50, data= mfdatcaceocna)
+
+caceoverallcomp$CACE
+caceoverallcomp$Compliers
+#Compliers per arm
+
+xtabs(~mfdatcaceocna$Random_5922_0_1+ mfdatcaceocna$Compliancebinperc)
+
+
+#############################
+#Exploring interaction between timing of randomisation and treatment arm
+#Primary model sensitivity analysis Randomisation Time
+mfdat2 <-mfdat
+mfdat2$After_Rand <- mffkdatplusr$After_Rand
+
+primmod1sensrt <- lmer(VISIT6RESULT ~ Random_5922_0_1*After_Rand + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                   Hypertension_5109_1_1 + 
+                   TIA_Stroke_5377_1_1 + 
+                   Cancer_5381_1_1 + 
+                   HipFracture_5384_1_1 + 
+                   Osteoporosis_5386_1_1 + 
+                   Parkinsonsdisease_5387_1_1 + 
+                   Asthma_COPD_5338_1_1 + 
+                   CHF_5379_1_1 + 
+                   OA_RA_5385_1_1  + (1|SITE), data= mfdat2)
+summary(primmod1sensrt)
+
+confint(primmod1sensrt)
+
