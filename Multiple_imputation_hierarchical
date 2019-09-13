@@ -1,0 +1,314 @@
+#Multiple imputation hierarchical
+#This loads the MI library
+library(mice)
+library(lme4)
+
+
+############
+mffkdat$VISIT6RESULTdeathmiss0 <- mffkdat$VISIT6RESULT
+mffkdat$VISIT6RESULTdeathmiss0[mffkdat$TIMEPOINTOFDEATH == "Died before 1 yr Follow-up"] <- 0
+
+#This is primary model 1 with pressure sores and alcohol excess removed
+primmod1 <- lmer(VISIT6RESULT ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                   Hypertension_5109_1_1 + 
+                   TIA_Stroke_5377_1_1 + 
+                   Cancer_5381_1_1 + 
+                   HipFracture_5384_1_1 + 
+                   Osteoporosis_5386_1_1 + 
+                   Parkinsonsdisease_5387_1_1 + 
+                   Asthma_COPD_5338_1_1 + 
+                   CHF_5379_1_1 + 
+                   OA_RA_5385_1_1 + (1|SITE), data= mfdat)
+
+#This creates a dataframe with all of the information for the final model
+#Here i replace VISIT6RESULT with VISIT6RESULTdeathmiss0
+
+mffkmidat <- data.frame(mffkdat$VISIT6RESULTdeathmiss0, mffkdat$Random_5922_0_1, mffkdat$RESULT2, mffkdat$AGE, mffkdat$Gender_5022_0_1, mffkdat$NEWFRIED,
+                        mffkdat$Hypertension_5109_1_1, mffkdat$TIA_Stroke_5377_1_1, mffkdat$Cancer_5381_1_1, mffkdat$HipFracture_5384_1_1, mffkdat$Osteoporosis_5386_1_1,
+                        mffkdat$Parkinsonsdisease_5387_1_1, mffkdat$Asthma_COPD_5338_1_1, mffkdat$CHF_5379_1_1, mffkdat$OA_RA_5385_1_1, mffkdat$SITE)
+
+colnames(mffkmidat) <- c("VISIT6RESULTdeathmiss0","Random_5922_0_1", "RESULT2", "AGE", "Gender_5022_0_1", "NEWFRIED",
+                         "Hypertension_5109_1_1", "TIA_Stroke_5377_1_1", "Cancer_5381_1_1", "HipFracture_5384_1_1", "Osteoporosis_5386_1_1",
+                         "Parkinsonsdisease_5387_1_1", "Asthma_COPD_5338_1_1", "CHF_5379_1_1", "OA_RA_5385_1_1", "SITE"
+)
+
+#I also want to remove the 2 participants who died pre-baseline as it doesn't make sense to impute their SPPB scores. Only run this once, as it removes these rows. Running it a second time will erroneously remove additional rows
+#The is pre baseline death row numbers
+prebdeathrows <- as.numeric(na.exclude(seq(1:dim(mffkdat)[1])[mffkdat$TIMEPOINTOFDEATH == "Died before Baseline"]))
+mffkmidat <- mffkmidat[-c(prebdeathrows), ]
+#The above should have 962 rows
+
+
+#Need to do this using hierarchically imputation
+#hmi function
+library(hmi)
+mfmidathmi <- mffkmidat
+mfmidathmi$intercept <- 1
+set.seed(64700)
+miouthmi <- hmi(data = mfmidathmi,model_formula= VISIT6RESULTdeathmiss0 ~ 1+ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                  Hypertension_5109_1_1 + 
+                  TIA_Stroke_5377_1_1 + 
+                  Cancer_5381_1_1 + 
+                  HipFracture_5384_1_1 + 
+                  Osteoporosis_5386_1_1 + 
+                  Parkinsonsdisease_5387_1_1 + 
+                  Asthma_COPD_5338_1_1 + 
+                  CHF_5379_1_1 + 
+                  OA_RA_5385_1_1 + (1|SITE),M=50,maxit=10,pool_with_mice=T)
+
+#This tells us how many clusters in each arm i nthe MI analysis
+
+sapply(lapply(split(miouthmi$data$SITE,miouthmi$data$Random_5922_0_1),unique),length)
+#This tells us all 37 sites in each arm are present in the full imputed data
+
+
+#This tells us whats missing
+miouthmi[4]
+#This is 328 follow-up SPPBs and 126 baseline
+
+myfullformula <- VISIT6RESULTdeathmiss0 ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+  Hypertension_5109_1_1 + 
+  TIA_Stroke_5377_1_1 + 
+  Cancer_5381_1_1 + 
+  HipFracture_5384_1_1 + 
+  Osteoporosis_5386_1_1 + 
+  Parkinsonsdisease_5387_1_1 + 
+  Asthma_COPD_5338_1_1 + 
+  CHF_5379_1_1 + 
+  OA_RA_5385_1_1 + (1|SITE)
+
+myfullanalysis <- function(complete_data){
+  parameters_of_interest <- list()
+  
+  my_model <- lmer(myfullformula, data = complete_data)
+  
+  parameters_of_interest[[1]] <- fixef(my_model)[2]
+  parameters_of_interest[[2]] <- iccfunc(my_model)
+  names(parameters_of_interest) <- c("Treatment effect", "ICC")
+  
+  return(parameters_of_interest)
+}
+
+hmi_pool(mids = miouthmi, analysis_function = myfullanalysis)
+
+#
+#Descriptive statistics
+#Number in each arm in the fitted model
+table(miouthmi$data$Random_5922_0_1)
+
+#Baseline mean SPPB (and 95% CI)
+#This splits the imputed SPPB and takes the mean of it 
+sppbmiBbaselinemeanhmi <- with(data=miouthmi,exp= sapply(split(RESULT2,Random_5922_0_1),mean))
+#This restructures into a matrix and takes a mean
+round(colMeans(matrix(unlist(sppbmiBbaselinemeanhmi$analyses),ncol=2,byrow=T)),2)
+
+sppbmiBbaselinecihmi <- with(data=miouthmi,exp= sapply(split(RESULT2,Random_5922_0_1),t.testci))
+#This restructures into a matrix and takes a mean- Outputs Control low, Control upp, Intervention low, Intervention Upp
+round(colMeans(matrix(unlist(sppbmiBbaselinecihmi$analyses),ncol=4,byrow=T)),2)
+
+
+###########
+#1 YEAR FOLLOW-UP mean SPPB (and 95% CI)
+
+#This splits the imputed SPPB and takes the mean of it 
+sppbmiB1yrmeanhmi <- with(data=miouthmi,exp= sapply(split(VISIT6RESULTdeathmiss0,Random_5922_0_1),mean))
+#This restructures into a matrix and takes a mean
+round(colMeans(matrix(unlist(sppbmiB1yrmeanhmi$analyses),ncol=2,byrow=T)),2)
+
+
+#This gets the 95% CI
+
+sppbmiB1yrcihmi <- with(data=miouthmi,exp= sapply(split(VISIT6RESULTdeathmiss0,Random_5922_0_1),t.testci))
+#This restructures into a matrix and takes a mean- Outputs Control low, Control upp, Intervention low, Intervention Upp
+round(colMeans(matrix(unlist(sppbmiB1yrcihmi$analyses),ncol=4,byrow=T)),2)
+
+
+#UNADJUSTED MEAN DIFFERENCE
+sppbunadjmeanoutBhmi <- matrix(unlist(sppbmiB1yrmeanhmi$analyses),ncol=2,byrow=T)
+
+#This calculates the mean unadjusted difference
+round(mean(sppbunadjmeanoutBhmi[,2]-sppbunadjmeanoutBhmi[,1]),2)
+
+#This gets the unadjusted 95% CI
+round(t.testci(sppbunadjmeanoutBhmi[,2]-sppbunadjmeanoutBhmi[,1]),2)
+
+#ICC 
+
+sppbmiBicchmi <- with(data=miouthmi,exp=iccfunc(lmer(VISIT6RESULTdeathmiss0 ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                                                 Hypertension_5109_1_1 + 
+                                                 TIA_Stroke_5377_1_1 + 
+                                                 Cancer_5381_1_1 + 
+                                                 HipFracture_5384_1_1 + 
+                                                 Osteoporosis_5386_1_1 + 
+                                                 Parkinsonsdisease_5387_1_1 + 
+                                                 Asthma_COPD_5338_1_1 + 
+                                                 CHF_5379_1_1 + 
+                                                 OA_RA_5385_1_1 + (1|SITE))) )
+
+mean(unlist(sppbmiBicchmi$analyses))
+
+#Getting 95% CI for treatment effect
+sppbmiBtrt95hmi <- with(data=miouthmi,exp=fixef(lmer(VISIT6RESULTdeathmiss0 ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                                                       Hypertension_5109_1_1 + 
+                                                       TIA_Stroke_5377_1_1 + 
+                                                       Cancer_5381_1_1 + 
+                                                       HipFracture_5384_1_1 + 
+                                                       Osteoporosis_5386_1_1 + 
+                                                       Parkinsonsdisease_5387_1_1 + 
+                                                       Asthma_COPD_5338_1_1 + 
+                                                       CHF_5379_1_1 + 
+                                                       OA_RA_5385_1_1 + (1|SITE)))[2] )
+
+quantile(unlist(sppbmiBtrt95hmi$analyses),c(0.025,0.975))
+
+#Getting p-value
+sppbmiBpvalhmi <- with(data=miouthmi,exp=coef.lmer(lmer(VISIT6RESULTdeathmiss0 ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                                                       Hypertension_5109_1_1 + 
+                                                       TIA_Stroke_5377_1_1 + 
+                                                       Cancer_5381_1_1 + 
+                                                       HipFracture_5384_1_1 + 
+                                                       Osteoporosis_5386_1_1 + 
+                                                       Parkinsonsdisease_5387_1_1 + 
+                                                       Asthma_COPD_5338_1_1 + 
+                                                       CHF_5379_1_1 + 
+                                                       OA_RA_5385_1_1 + (1|SITE)))[2,2] )
+
+mean(unlist(sppbmiBpvalhmi$analyses))
+
+###############################
+###############################
+#This will actually be presented first but we perform it second. This is the sensitivity analysis that requires everyone to have aty least a baselines SPPB
+
+#This creates a data frame with all fo the variables we need, but excluding those without a baseline SPPB
+mfmibasedathmi <- mfmidathmi[is.na(mfmidathmi$RESULT2) == F,]
+
+set.seed(15039)
+mibaseouthmi <- hmi(data = mfmibasedathmi,model_formula= VISIT6RESULTdeathmiss0 ~ 1+ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                  Hypertension_5109_1_1 + 
+                  TIA_Stroke_5377_1_1 + 
+                  Cancer_5381_1_1 + 
+                  HipFracture_5384_1_1 + 
+                  Osteoporosis_5386_1_1 + 
+                  Parkinsonsdisease_5387_1_1 + 
+                  Asthma_COPD_5338_1_1 + 
+                  CHF_5379_1_1 + 
+                  OA_RA_5385_1_1 + (1|SITE),M=50,maxit=10,pool_with_mice=T)
+
+#This tells us how many clusters in each arm in the MI analysis
+
+sapply(lapply(split(mibaseouthmi$data$SITE,mibaseouthmi$data$Random_5922_0_1),unique),length)
+#This tells us one sites drops out of the intervention arm in this analysis
+
+
+#This tells us whats missing
+mibaseouthmi[4]
+#This is 205 follow-up SPPBs missing
+
+myfullformula <- VISIT6RESULTdeathmiss0 ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+  Hypertension_5109_1_1 + 
+  TIA_Stroke_5377_1_1 + 
+  Cancer_5381_1_1 + 
+  HipFracture_5384_1_1 + 
+  Osteoporosis_5386_1_1 + 
+  Parkinsonsdisease_5387_1_1 + 
+  Asthma_COPD_5338_1_1 + 
+  CHF_5379_1_1 + 
+  OA_RA_5385_1_1 + (1|SITE)
+
+myfullanalysis <- function(complete_data){
+  parameters_of_interest <- list()
+  
+  my_model <- lmer(myfullformula, data = complete_data)
+  
+  parameters_of_interest[[1]] <- fixef(my_model)[2]
+  parameters_of_interest[[2]] <- iccfunc(my_model)
+  names(parameters_of_interest) <- c("Treatment effect", "ICC")
+  
+  return(parameters_of_interest)
+}
+
+hmi_pool(mids = mibaseouthmi, analysis_function = myfullanalysis)
+
+#
+#Descriptive statistics
+#Number in each arm in the fitted model
+table(mibaseouthmi$data$Random_5922_0_1)
+
+#Baseline mean SPPB (and 95% CI)
+#This splits the imputed SPPB and takes the mean of it 
+sppbmiAbaselinemeanhmi <- with(data=mibaseouthmi,exp= sapply(split(RESULT2,Random_5922_0_1),mean))
+#This restructures into a matrix and takes a mean
+round(colMeans(matrix(unlist(sppbmiAbaselinemeanhmi$analyses),ncol=2,byrow=T)),2)
+
+sppbmiAbaselinecihmi <- with(data=mibaseouthmi,exp= sapply(split(RESULT2,Random_5922_0_1),t.testci))
+#This restructures into a matrix and takes a mean- Outputs Control low, Control upp, Intervention low, Intervention Upp
+round(colMeans(matrix(unlist(sppbmiAbaselinecihmi$analyses),ncol=4,byrow=T)),2)
+
+
+###########
+#1 YEAR FOLLOW-UP mean SPPB (and 95% CI)
+
+#This splits the imputed SPPB and takes the mean of it 
+sppbmiA1yrmeanhmi <- with(data=mibaseouthmi,exp= sapply(split(VISIT6RESULTdeathmiss0,Random_5922_0_1),mean))
+#This restructures into a matrix and takes a mean
+round(colMeans(matrix(unlist(sppbmiA1yrmeanhmi$analyses),ncol=2,byrow=T)),2)
+
+
+#This gets the 95% CI
+
+sppbmiA1yrcihmi <- with(data=mibaseouthmi,exp= sapply(split(VISIT6RESULTdeathmiss0,Random_5922_0_1),t.testci))
+#This restructures into a matrix and takes a mean- Outputs Control low, Control upp, Intervention low, Intervention Upp
+round(colMeans(matrix(unlist(sppbmiA1yrcihmi$analyses),ncol=4,byrow=T)),2)
+
+
+#UNADJUSTED MEAN DIFFERENCE
+sppbunadjmeanoutAhmi <- matrix(unlist(sppbmiA1yrmeanhmi$analyses),ncol=2,byrow=T)
+
+#This calculates the mean unadjusted difference
+round(mean(sppbunadjmeanoutAhmi[,2]-sppbunadjmeanoutAhmi[,1]),2)
+
+#This gets the unadjusted 95% CI
+round(t.testci(sppbunadjmeanoutAhmi[,2]-sppbunadjmeanoutAhmi[,1]),2)
+
+#ICC 
+
+sppbmiAicchmi <- with(data=mibaseouthmi,exp=iccfunc(lmer(VISIT6RESULTdeathmiss0 ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                                                       Hypertension_5109_1_1 + 
+                                                       TIA_Stroke_5377_1_1 + 
+                                                       Cancer_5381_1_1 + 
+                                                       HipFracture_5384_1_1 + 
+                                                       Osteoporosis_5386_1_1 + 
+                                                       Parkinsonsdisease_5387_1_1 + 
+                                                       Asthma_COPD_5338_1_1 + 
+                                                       CHF_5379_1_1 + 
+                                                       OA_RA_5385_1_1 + (1|SITE))) )
+
+mean(unlist(sppbmiAicchmi$analyses))
+
+#Getting 95% CI for treatment effect
+sppbmiAtrt95hmi <- with(data=mibaseouthmi,exp=fixef(lmer(VISIT6RESULTdeathmiss0 ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                                                       Hypertension_5109_1_1 + 
+                                                       TIA_Stroke_5377_1_1 + 
+                                                       Cancer_5381_1_1 + 
+                                                       HipFracture_5384_1_1 + 
+                                                       Osteoporosis_5386_1_1 + 
+                                                       Parkinsonsdisease_5387_1_1 + 
+                                                       Asthma_COPD_5338_1_1 + 
+                                                       CHF_5379_1_1 + 
+                                                       OA_RA_5385_1_1 + (1|SITE)))[2] )
+
+quantile(unlist(sppbmiAtrt95hmi$analyses),c(0.025,0.975))
+
+#Getting p-value
+sppbmiApvalhmi <- with(data=mibaseouthmi,exp=coef.lmer(lmer(VISIT6RESULTdeathmiss0 ~ Random_5922_0_1 + RESULT2 + AGE + Gender_5022_0_1 + NEWFRIED + 
+                                                          Hypertension_5109_1_1 + 
+                                                          TIA_Stroke_5377_1_1 + 
+                                                          Cancer_5381_1_1 + 
+                                                          HipFracture_5384_1_1 + 
+                                                          Osteoporosis_5386_1_1 + 
+                                                          Parkinsonsdisease_5387_1_1 + 
+                                                          Asthma_COPD_5338_1_1 + 
+                                                          CHF_5379_1_1 + 
+                                                          OA_RA_5385_1_1 + (1|SITE)))[2,2] )
+
+mean(unlist(sppbmiApvalhmi$analyses))
